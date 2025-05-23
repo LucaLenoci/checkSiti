@@ -23,6 +23,16 @@ function check_site_status($url)
     }
 }
 
+function send_email_notification($url)
+{
+    /*$to = "admin@example.com";
+    $subject = "Website Down Alert";
+    $message = "The website $url has been detected as offline twice in a row.";
+    $headers = "From: monitor@example.com";
+
+    mail($to, $subject, $message, $headers);*/
+}
+
 if (isset($_GET['url'])) {
     $site_url = filter_var($_GET['url'], FILTER_VALIDATE_URL);
     if (!$site_url) {
@@ -33,14 +43,77 @@ if (isset($_GET['url'])) {
     $status = check_site_status($site_url);
     echo $status;
 
-    $log_file = "offline_sites.log";
     $current_time = date("Y-m-d H:i:s");
+    $year = (int)date("Y");
+    $month = (int)date("n");
 
-    if ($status === "Offline") {
-        $log_message = "[$current_time] $site_url è Offline\n";
-        file_put_contents($log_file, $log_message, FILE_APPEND);
+    $db = new mysqli("localhost", "root", "", "checkSiti");
+    if ($db->connect_error) {
+        die("Connessione DB fallita: " . $db->connect_error);
     }
+
+    $stmt = $db->prepare("SELECT id, contatoreDisserviziConsecutivi FROM sitiMonitorati WHERE url = ?");
+    $stmt->bind_param("s", $site_url);
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows > 0) {
+        $row = $result->fetch_assoc();
+        $site_id = $row['id'];
+        $consec = $row['contatoreDisserviziConsecutivi'];
+
+        if ($status === "Offline") {
+            $consec++;
+
+            // Aggiorna disservizi mensili
+            $check_stmt = $db->prepare("SELECT contatore FROM disservizi_mensili WHERE idSito = ? AND anno = ? AND mese = ?");
+            $check_stmt->bind_param("iii", $site_id, $year, $month);
+            $check_stmt->execute();
+            $check_result = $check_stmt->get_result();
+
+            if ($check_result->num_rows > 0) {
+                $update_stmt = $db->prepare("UPDATE disservizi_mensili SET contatore = contatore + 1 WHERE idSito = ? AND anno = ? AND mese = ?");
+                $update_stmt->bind_param("iii", $site_id, $year, $month);
+                $update_stmt->execute();
+                $update_stmt->close();
+            } else {
+                $insert_stmt = $db->prepare("INSERT INTO disservizi_mensili (idSito, anno, mese, contatore) VALUES (?, ?, ?, 1)");
+                $insert_stmt->bind_param("iii", $site_id, $year, $month);
+                $insert_stmt->execute();
+                $insert_stmt->close();
+            }
+            $check_stmt->close();
+
+            if ($consec == 2) {
+                send_email_notification($site_url);
+            }
+        } else {
+            $consec = 0;
+        }
+
+        $update = $db->prepare("UPDATE sitiMonitorati SET contatoreDisserviziConsecutivi = ?, ultimoControllo = ? WHERE id = ?");
+        $update->bind_param("isi", $consec, $current_time, $site_id);
+        $update->execute();
+        $update->close();
+
+    } else {
+        $consec = ($status === "Offline") ? 1 : 0;
+
+        $insert = $db->prepare("INSERT INTO sitiMonitorati (url, contatoreDisserviziConsecutivi, ultimoControllo) VALUES (?, ?, ?)");
+        $insert->bind_param("sis", $site_url, $consec, $current_time);
+        $insert->execute();
+        $site_id = $insert->insert_id;
+        $insert->close();
+
+        if ($status === "Offline") {
+            $insert_dis = $db->prepare("INSERT INTO disservizi_mensili (idSito, anno, mese, contatore) VALUES (?, ?, ?, 1)");
+            $insert_dis->bind_param("iii", $site_id, $year, $month);
+            $insert_dis->execute();
+            $insert_dis->close();
+        }
+    }
+
+    $stmt->close();
+    $db->close();
 }
-
-
 ?>
