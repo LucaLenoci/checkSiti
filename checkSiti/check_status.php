@@ -1,4 +1,8 @@
 <?php
+require __DIR__ . '/../vendor/autoload.php';
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
 function check_site_status($url)
 {
     $ch = curl_init($url);
@@ -25,12 +29,32 @@ function check_site_status($url)
 
 function send_email_notification($url)
 {
-    /*$to = "admin@example.com";
-    $subject = "Website Down Alert";
-    $message = "The website $url has been detected as offline twice in a row.";
-    $headers = "From: monitor@example.com";
+    $mail = new PHPMailer(true);
 
-    mail($to, $subject, $message, $headers);*/
+    try {
+        //Server settings
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.gmail.com';         // Server SMTP (puoi cambiare se usi altro)
+        $mail->SMTPAuth   = true;
+        $mail->Username   = 'luca.lenoci.10@gmail.com';      // La tua email
+        $mail->Password   = '';            // Password o app password di Gmail
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = 587;
+
+        //Recipients
+        $mail->setFrom('luca.lenoci.10@gmail.com', 'Monitoraggio Siti');
+        $mail->addAddress('lucaxl10@gmail.com');       // Email destinatario
+
+        // Content
+        $mail->isHTML(false);
+        $mail->Subject = 'Alert: sito offline';
+        $mail->Body    = "Il sito $url risulta offline.";
+
+        $mail->send();
+        // echo 'Messaggio inviato';
+    } catch (Exception $e) {
+        error_log("Mailer Error: {$mail->ErrorInfo}");
+    }
 }
 
 if (isset($_GET['url'])) {
